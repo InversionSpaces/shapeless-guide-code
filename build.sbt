@@ -32,6 +32,12 @@ libraryDependencies in Global ++= Seq(
 lazy val common =
   project.in(file("common"))
 
+lazy val helloworld =
+  project.in(file("helloworld")).dependsOn(common)
+
+lazy val playground =
+  project.in(file("playground")).dependsOn(common)
+
 lazy val representations =
   project.in(file("representations")).dependsOn(common)
 
