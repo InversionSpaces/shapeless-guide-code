@@ -1,4 +1,9 @@
-sealed abstract class Json
+import shapeless._
+import shapeless.labelled._
+
+sealed abstract class Json {
+  def stringify: String = Json.stringify(this)
+}
 final case class JsonObject(fields: List[(String, Json)]) extends Json
 final case class JsonArray(items: List[Json])             extends Json
 final case class JsonString(value: String)                extends Json
@@ -37,6 +42,10 @@ trait JsonObjectEncoder[A] extends JsonEncoder[A] {
 }
 
 object JsonEncoder {
+  def apply[T](
+    implicit ev: JsonEncoder[T]
+  ): JsonEncoder[T] = ev
+
   def pure[A](func: A => Json): JsonEncoder[A] =
     new JsonEncoder[A] {
       def encode(value: A): Json =
@@ -48,28 +57,71 @@ object JsonEncoder {
       def encode(value: A): JsonObject =
         func(value)
     }
-  // implicit val stringEnc: JsonEncoder[String] =
-  //   pure(str => JsonString(str))
 
-  // implicit val intEnc: JsonEncoder[Int] =
-  //   pure(num => JsonNumber(num))
+  implicit val stringEnc: JsonEncoder[String] =
+    pure(str => JsonString(str))
 
-  // implicit val doubleEnc: JsonEncoder[Double] =
-  //   pure(num => JsonNumber(num))
+  implicit val intEnc: JsonEncoder[Int] =
+    pure(num => JsonNumber(num))
 
-  // implicit val booleanEnc: JsonEncoder[Boolean] =
-  //   pure(bool => JsonBoolean(bool))
-  // implicit val hnilEnc: JsonObjectEncoder[HNil] =
-  //   pureObj(hnil => JsonObject(Nil))
+  implicit val doubleEnc: JsonEncoder[Double] =
+    pure(num => JsonNumber(num))
 
-  // implicit def hlistEnc // ...
+  implicit val booleanEnc: JsonEncoder[Boolean] =
+    pure(bool => JsonBoolean(bool))
 
-  // implicit val cnilEnc: JsonObjectEncoder[CNil] =
-  //   pureObj(cnil => ???)
+  implicit def listEnc[T](
+    implicit tenc: JsonEncoder[T]
+  ): JsonEncoder[List[T]] =
+    pure(list => JsonArray(list.map(tenc.encode)))
 
-  // implicit def coproductEnc // ...
+  implicit def optEnc[T](
+    implicit tenc: JsonEncoder[T]
+  ): JsonEncoder[Option[T]] =
+    pure(_.map(tenc.encode).getOrElse(JsonNull))
 
-  // implicit def genericEnc // ...
+  implicit val hnilEnc: JsonObjectEncoder[HNil] =
+    pureObj(hnil => JsonObject(Nil))
+
+  implicit def hlistEnc[K <: Symbol, H, T <: HList](
+    implicit
+    witness: Witness.Aux[K],
+    henc: Lazy[JsonEncoder[H]],
+    tenc: JsonObjectEncoder[T],
+  ): JsonObjectEncoder[FieldType[K, H] :: T] =
+    pureObj(list => JsonObject(
+        fields = (
+          witness.value.name,
+          henc.value.encode(list.head),
+        ) :: tenc.encode(list.tail).fields
+      )  
+    )
+
+  implicit val cnilEnc: JsonObjectEncoder[CNil] =
+    pureObj(cnil => throw new IllegalStateException("Impossible"))
+
+  implicit def coproductEnc[K <: Symbol, H, T <: Coproduct](
+    implicit
+    witness: Witness.Aux[K],
+    henc: Lazy[JsonObjectEncoder[H]],
+    tenc: JsonObjectEncoder[T],
+  ): JsonObjectEncoder[FieldType[K, H] :+: T] =
+    pureObj {
+      case Inl(value) => JsonObject(
+        fields = (
+          "type",
+          JsonString(witness.value.name),
+        ) :: henc.value.encode(value).fields
+      )
+      case Inr(value) => tenc.encode(value)
+    }
+
+  implicit def genericEnc[A, R](
+    implicit
+    gen: LabelledGeneric.Aux[A, R],
+    enc: JsonObjectEncoder[R],
+  ): JsonObjectEncoder[A] = 
+    pureObj(value => enc.encode(gen.to(value)))
 }
 
 final case class Employee(
@@ -106,5 +158,10 @@ object Main extends Demo {
 
   val shape1: Shape = Rectangle(3, 4)
   val shape2: Shape = Circle(1)
+
+  println(Json.encode(employee1).stringify)
+  println(Json.encode(iceCream1).stringify)
+  println(Json.encode(shape1).stringify)
+  println(Json.encode(shape2).stringify)
 
 }
