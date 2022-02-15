@@ -1,6 +1,7 @@
 import shapeless._
 import shapeless.ops.coproduct.Length
 import shapeless.ops.nat.ToInt
+import shapeless.ops.coproduct
 
 trait Random[A] {
   def get: A
@@ -57,20 +58,21 @@ object Random {
       throw new Exception("Mass hysteria!")
     }
 
-  implicit def coproductRandom[H, T <: Coproduct](
+  implicit def coproductRandom[H, T <: Coproduct, L <: Nat](
     implicit
     hRandom: Random[H],
-    tRandom: Lazy[Random[T]]
+    tRandom: Lazy[Random[T]],
+    tLength: coproduct.Length.Aux[T, L],
+    tLenghtInt: ToInt[L],
   ): Random[H :+: T] =
     createRandom {
-      // TODO: Modify this probability
-      // to ensure all tails of this coproduct
-      // are weighted equally!
-      if (scala.util.Random.nextDouble() < 0.5) {
+      val tlength = tLenghtInt.apply()
+      if (tlength == 0)
         Inl(hRandom.get)
-      } else {
+      else if ((1 + tlength) * scala.util.Random.nextDouble() < 1.0)
+        Inl(hRandom.get)
+      else
         Inr(tRandom.value.get)
-      }
     }
 }
 
@@ -89,5 +91,5 @@ object Main extends Demo {
   case object Amber extends Light
   case object Green extends Light
 
-  Random.sample[Light](10).foreach(println)
+  Random.sample[Light](100).foreach(println)
 }
