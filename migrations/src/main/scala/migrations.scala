@@ -1,7 +1,7 @@
 import cats.Monoid
 import cats.instances.all._
 import shapeless._
-import shapeless.labelled.{ field, FieldType }
+import shapeless.labelled.{field, FieldType}
 import shapeless.ops.hlist
 import shapeless.ops.coproduct
 
@@ -15,6 +15,36 @@ object Migration {
       def apply(original: A): B =
         func(original)
     }
+
+  implicit def genericMigration[
+    A,
+    B,
+    AR <: HList,
+    BR <: HList,
+    I <: HList,
+    N <: HList,
+    C <: HList,
+  ](
+    implicit agen: LabelledGeneric.Aux[A, AR],
+    bgen: LabelledGeneric.Aux[B, BR],
+    inter: hlist.Intersection.Aux[AR, BR, I],
+    diff: hlist.Diff.Aux[BR, I, N],
+    monoid: Monoid[N],
+    concat: hlist.Prepend.Aux[I, N, C],
+    align: hlist.Align[C, BR],
+  ): Migration[A, B] =
+    pure(value =>
+      bgen.from(
+        align.apply(
+          concat.apply(
+            inter.apply(
+              agen.to(value)
+            ),
+            monoid.empty
+          )
+        )
+      )
+    )
 
 }
 
@@ -38,6 +68,23 @@ object Main extends Demo {
     def migrateTo[B](implicit migration: Migration[A, B]): B =
       migration(original)
   }
+
+  implicit val hnilMonoid: Monoid[HNil] = Monoid.instance(
+    HNil,
+    (_, _) => HNil
+  )
+
+  implicit def hconsMonoid[K <: Symbol, H, T <: HList](
+    implicit hm: Lazy[Monoid[H]],
+    tm: Monoid[T],
+  ): Monoid[FieldType[K, H] :: T] = Monoid.instance(
+    field[K](hm.value.empty) :: tm.empty,
+    (left, right) =>
+      field[K](hm.value.combine(
+        left.head,
+        right.head
+      )) :: tm.combine(left.tail, right.tail)
+  )
 
   print(SameA("abc", 123, true).migrateTo[SameB])
   print(DropFieldA("abc", 123, true).migrateTo[DropFieldB])
